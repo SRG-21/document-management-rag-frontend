@@ -38,26 +38,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, _password: string) => {
     // Mock login since backend doesn't have auth endpoint
-    // In dev mode, always allow login
-    if (config.devMode) {
-      const mockUser: User = {
-        id: '1',
-        email,
-      };
-      const mockToken = 'dev-token-' + Date.now();
-      
-      localStorage.setItem('auth_token', mockToken);
-      localStorage.setItem('user', JSON.stringify(mockUser));
-      
-      setAuthState({
-        user: mockUser,
-        token: mockToken,
-        isAuthenticated: true,
-      });
-    } else {
-      // In production, implement actual authentication
-      throw new Error('Authentication not implemented for production');
-    }
+    // Allow login in both dev and production until real auth is implemented
+    const mockUser: User = {
+      id: '1',
+      email,
+    };
+    const mockToken = 'token-' + Date.now();
+    
+    localStorage.setItem('auth_token', mockToken);
+    localStorage.setItem('user', JSON.stringify(mockUser));
+    
+    setAuthState({
+      user: mockUser,
+      token: mockToken,
+      isAuthenticated: true,
+    });
   };
 
   const logout = () => {

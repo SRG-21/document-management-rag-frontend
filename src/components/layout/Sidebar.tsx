@@ -3,7 +3,6 @@ import { MessageSquare, Upload, Settings, Moon, Sun, X, Plus, Trash2, FileText, 
 import { UploadPanel } from '../upload/UploadPanel';
 import { DocumentSelector } from '../chat/DocumentSelector';
 import { getChatHistory, deleteChatSession } from '../../lib/api';
-import { chatStorage } from '../../lib/chatStorage';
 import type { ChatSession } from '../../types/chat';
 import toast from 'react-hot-toast';
 
@@ -13,15 +12,19 @@ interface SidebarProps {
   onSelectSession?: (sessionId: string) => void;
   currentSessionId?: string;
   onStartChatWithDocument?: (documentId: string, documentName: string) => void;
+  onNewChat?: () => Promise<void>;
   refreshTrigger?: number;
+  initialSessions?: ChatSession[] | null;
 }
 
-export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, onStartChatWithDocument, refreshTrigger }: SidebarProps) {
+export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, onStartChatWithDocument, onNewChat, refreshTrigger, initialSessions }: SidebarProps) {
   const [activeTab, setActiveTab] = useState<'chat' | 'upload' | 'settings'>('chat');
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
+  const [chatSessions, setChatSessions] = useState<ChatSession[]>(initialSessions || []);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(initialSessions !== null);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<{ id: string; name: string } | null>(null);
+  const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [darkMode, setDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
       return document.documentElement.classList.contains('dark');
@@ -31,11 +34,20 @@ export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, o
 
   console.log('🎨 Sidebar rendered - activeTab:', activeTab, 'isOpen:', isOpen);
 
+  // Update sessions when initialSessions prop changes
   useEffect(() => {
-    if (activeTab === 'chat') {
+    if (initialSessions && initialSessions.length >= 0 && !hasInitialized) {
+      setChatSessions(initialSessions);
+      setHasInitialized(true);
+    }
+  }, [initialSessions, hasInitialized]);
+
+  // Only reload on refreshTrigger changes (after first load)
+  useEffect(() => {
+    if (activeTab === 'chat' && hasInitialized && refreshTrigger && refreshTrigger > 0) {
       loadSessions();
     }
-  }, [activeTab, refreshTrigger]);  // Re-load when refresh trigger changes
+  }, [activeTab, refreshTrigger, hasInitialized]);
 
   const loadSessions = async () => {
     try {
@@ -55,21 +67,24 @@ export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, o
     setSelectedDocument(null);
   };
 
-  const handleCreateChat = () => {
-    const newSession = chatStorage.createSession(
-      selectedDocument ? `Chat: ${selectedDocument.name}` : undefined,
-      selectedDocument?.id,
-      selectedDocument?.name
-    );
-    // Don't save to storage yet - will be saved when first message is sent
-    onSelectSession?.(newSession.id);
-    setShowNewChatDialog(false);
-    setSelectedDocument(null);
-    
-    if (selectedDocument) {
-      toast.success(`Started new chat with ${selectedDocument.name}`);
-    } else {
-      toast.success('Started new chat');
+  const handleCreateChat = async () => {
+    setIsCreatingChat(true);
+    try {
+      if (selectedDocument) {
+        await onStartChatWithDocument?.(selectedDocument.id, selectedDocument.name);
+      } else {
+        await onNewChat?.();
+      }
+      setShowNewChatDialog(false);
+      setSelectedDocument(null);
+      // Close sidebar on mobile after creating chat
+      if (window.innerWidth < 1024) {
+        onToggle();
+      }
+    } catch (error) {
+      console.error('Error creating chat:', error);
+    } finally {
+      setIsCreatingChat(false);
     }
   };
 
@@ -86,9 +101,8 @@ export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, o
           loadSessions();
           toast.success('Chat deleted');
           if (currentSessionId === sessionId) {
-            // Just create a temp session, don't save it
-            const newSession = chatStorage.createSession();
-            onSelectSession?.(newSession.id);
+            // Create a new session via backend
+            onNewChat?.();
           }
         })
         .catch((error) => {
@@ -202,9 +216,10 @@ export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, o
                   
                   <button
                     onClick={handleCreateChat}
-                    className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    disabled={isCreatingChat}
+                    className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Create Chat
+                    {isCreatingChat ? 'Creating...' : 'Create Chat'}
                   </button>
                 </div>
               )}
@@ -225,7 +240,10 @@ export function Sidebar({ isOpen, onToggle, onSelectSession, currentSessionId, o
                       key={session.id}
                       onClick={() => {
                         onSelectSession?.(session.id);
-                        onToggle(); // Close sidebar after selecting
+                        // Close sidebar on mobile after selecting
+                        if (window.innerWidth < 1024) {
+                          onToggle();
+                        }
                       }}
                       className={`group flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
                         currentSessionId === session.id

@@ -3,7 +3,6 @@ import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import { useSSE } from '../../hooks/useSSE';
 import { generateId } from '../../lib/utils';
-import { chatStorage } from '../../lib/chatStorage';
 import { getChatSession } from '../../lib/api';
 import type { Message, ChatSession } from '../../types/chat';
 import { FileText } from 'lucide-react';
@@ -14,42 +13,15 @@ interface ChatContainerProps {
   onSessionUpdate?: () => void;
 }
 
-function getInitialSession(sessionId?: string): ChatSession {
-  if (!sessionId) {
-    return chatStorage.createSession();
-  }
-  
-  const contextStr = sessionStorage.getItem(`session_context_${sessionId}`);
-  if (contextStr) {
-    try {
-      const context = JSON.parse(contextStr);
-      return {
-        id: sessionId,
-        title: context.title || 'New Chat',
-        messages: [],
-        documentId: context.documentId,
-        documentName: context.documentName,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    } catch (e) {
-      console.error('Failed to parse session context:', e);
-    }
-  }
-  
-  const existingSession = chatStorage.getSession(sessionId);
-  if (existingSession) {
-    return existingSession;
-  }
-  
-  const newSession = chatStorage.createSession();
-  newSession.id = sessionId;
-  return newSession;
-}
-
 export function ChatContainer({ sessionId, onSessionUpdate }: ChatContainerProps) {
-  const [currentSession, setCurrentSession] = useState<ChatSession>(() => getInitialSession(sessionId));
-  const [messages, setMessages] = useState<Message[]>(currentSession.messages);
+  const [currentSession, setCurrentSession] = useState<ChatSession>({
+    id: sessionId || '',
+    title: 'New Chat',
+    messages: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const [messages, setMessages] = useState<Message[]>([]);
   const [currentAssistantMessage, setCurrentAssistantMessage] = useState('');
   const [useContext] = useState(true);
   const [maxTokens] = useState(500);
@@ -59,41 +31,34 @@ export function ChatContainer({ sessionId, onSessionUpdate }: ChatContainerProps
   const hasLoadedFromApi = useRef(false);
 
   useEffect(() => {
+    // Load session from backend
     if (!sessionId || hasLoadedFromApi.current) return;
+    
     hasLoadedFromApi.current = true;
     
-    const loadMessages = async () => {
+    const loadSession = async () => {
       setIsLoadingHistory(true);
       try {
         const apiSession = await getChatSession(sessionId);
         setMessages(apiSession.messages || []);
-        setCurrentSession(prev => ({
-          ...prev,
+        setCurrentSession({
+          id: apiSession.id,
+          title: apiSession.title || 'New Chat',
           messages: apiSession.messages || [],
-          title: apiSession.title || prev.title,
-          documentId: prev.documentId || apiSession.documentId,
-          documentName: prev.documentName || apiSession.documentName,
-        }));
+          documentId: apiSession.documentId,
+          documentName: apiSession.documentName,
+          createdAt: apiSession.createdAt,
+          updatedAt: apiSession.updatedAt,
+        });
       } catch {
-        // Session doesn't exist yet, keep initial state
+        // Session just created, no messages yet - keep empty state
       } finally {
         setIsLoadingHistory(false);
       }
     };
     
-    loadMessages();
+    loadSession();
   }, [sessionId]);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      chatStorage.updateSessionTitle(
-        currentSession.id, 
-        messages, 
-        currentSession.documentId, 
-        currentSession.documentName
-      );
-    }
-  }, [messages, currentSession.id, currentSession.documentId, currentSession.documentName]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -145,7 +110,6 @@ export function ChatContainer({ sessionId, onSessionUpdate }: ChatContainerProps
         };
         setMessages(prev => [...prev, assistantMessage]);
         setCurrentAssistantMessage('');
-        sessionStorage.removeItem(`session_context_${currentSession.id}`);
         onSessionUpdate?.();
       },
       (error) => {
@@ -158,7 +122,7 @@ export function ChatContainer({ sessionId, onSessionUpdate }: ChatContainerProps
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="px-4 py-3 flex items-center justify-between">
+        <div className="px-4 lg:px-8 py-3 flex items-center justify-between max-w-5xl mx-auto">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               {currentSession.title || 'New Chat'}
@@ -177,28 +141,32 @@ export function ChatContainer({ sessionId, onSessionUpdate }: ChatContainerProps
       </div>
 
       <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
-        <MessageList
-          messages={messages}
-          currentAssistantMessage={currentAssistantMessage}
-          isStreaming={isStreaming}
-          documentName={currentSession.documentName}
-        />
-        <div ref={messagesEndRef} />
+        <div className="max-w-5xl mx-auto px-4 lg:px-8 py-4">
+          <MessageList
+            messages={messages}
+            currentAssistantMessage={currentAssistantMessage}
+            isStreaming={isStreaming}
+            documentName={currentSession.documentName}
+          />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-        {currentSession.documentName && (
-          <div className="mb-2">
-            <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
-              <FileText className="w-3 h-3" />
-              Chatting with: {currentSession.documentName}
-            </span>
-          </div>
-        )}
-        <ChatInput
-          onSendMessage={handleSendMessage}
-          disabled={isStreaming}
-        />
+      <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="max-w-5xl mx-auto px-4 lg:px-8 py-4">
+          {currentSession.documentName && (
+            <div className="mb-2">
+              <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                <FileText className="w-3 h-3" />
+                Chatting with: {currentSession.documentName}
+              </span>
+            </div>
+          )}
+          <ChatInput
+            onSendMessage={handleSendMessage}
+            disabled={isStreaming}
+          />
+        </div>
       </div>
     </div>
   );

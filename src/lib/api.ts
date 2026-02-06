@@ -20,6 +20,29 @@ apiClient.interceptors.request.use((axiosConfig) => {
   return axiosConfig;
 });
 
+// Auth response type
+interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user_id: string;
+  email: string;
+}
+
+// Auth API
+export const loginUser = async (email: string, password: string): Promise<AuthResponse> => {
+  const response = await apiClient.post('/api/auth/login', { email, password });
+  return response.data;
+};
+
+export const registerUser = async (email: string, password: string): Promise<AuthResponse> => {
+  const response = await apiClient.post('/api/auth/register', { email, password });
+  return response.data;
+};
+
+export const logoutUser = async (): Promise<void> => {
+  await apiClient.post('/api/auth/logout');
+};
+
 // Helper to convert API session to frontend session
 const convertApiSessionToSession = (apiSession: ApiChatSession): ChatSession => {
   return {
@@ -39,6 +62,25 @@ const convertApiSessionToSession = (apiSession: ApiChatSession): ChatSession => 
 };
 
 // Chat History API
+export interface CreateSessionRequest {
+  document_id?: string;
+  document_name?: string;
+  title?: string;
+}
+
+export interface CreateSessionResponse {
+  session_id: string;
+  title: string;
+  document_id?: string;
+  document_name?: string;
+  created_at: string;
+}
+
+export const createChatSession = async (request?: CreateSessionRequest): Promise<CreateSessionResponse> => {
+  const response = await apiClient.post('/api/chat/session', request || {});
+  return response.data;
+};
+
 export const getChatHistory = async (): Promise<ChatSession[]> => {
   const response = await apiClient.get('/api/chat/history');
   return response.data.map(convertApiSessionToSession);
